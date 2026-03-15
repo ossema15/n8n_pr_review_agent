@@ -6,3 +6,4 @@
 -after running the command you will see a message "forwarding <link> to n8n port copy that link and start n8n image specify the name and port and in the env variables type 
 name:WEBHOOK_URL and the value is the link provided by ngrok 
 THATS IT !
+
