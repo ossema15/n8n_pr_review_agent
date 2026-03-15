@@ -1,0 +1,451 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "owner": {
+          "__rl": true,
+          "value": "https://github.com/ossema15/n8n_pr_review_agent",
+          "mode": "url"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "https://github.com/ossema15/n8n_pr_review_agent",
+          "mode": "url"
+        },
+        "events": [
+          "pull_request",
+          "pull_request_review",
+          "pull_request_review_comment",
+          "commit_comment"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        -544
+      ],
+      "id": "cd41f39f-3511-4166-80f9-a7f150fddeee",
+      "name": "Github Trigger",
+      "webhookId": "218347b1-cf70-4b88-9854-f80158fd498e",
+      "credentials": {
+        "githubApi": {
+          "id": "82csbIPnnQMS3Jle",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/ossema15/n8n_pr_review_agent/pulls/{{ $('Github Trigger').first().json.body.number }}/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.github.v3+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -544,
+        -544
+      ],
+      "id": "4d18dc50-397e-4348-a515-b0b7ec75cc2e",
+      "name": "HTTP Request",
+      "credentials": {
+        "githubApi": {
+          "id": "82csbIPnnQMS3Jle",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a senior software engineer doing a code review.\n\nAnalyse this diff and respond in this EXACT format:\n\nSUMMARY:\n- [what the PR does in 2-3 bullet points]\n\nISSUES:\n- [list any bugs, security issues, or bad practices]\n- [write \"None found\" if the code is clean]\n\nSUGGESTED FIX:\n- [write the corrected code snippet for each issue found]\n- [write \"No fix needed\" if no issues were found]\n\nVERDICT: [write only LGTM or NEEDS CHANGES]\n\nRules:\n- VERDICT must always be the last line\n- If ISSUES contains anything other than \"None found\", VERDICT must be NEEDS CHANGES\n- If code is clean, VERDICT must be LGTM\n- Always provide a fix when there are issues, never leave SUGGESTED FIX empty\n\nDiff:\n{{ $('DIFF Parser').first().json.patchSummary }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -144,
+        -544
+      ],
+      "id": "5be84ef9-8b07-40fb-b54c-98872969c8fe",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        -320
+      ],
+      "id": "03dc7d9c-c360-4feb-b5f9-3062f388cd91",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "PjyGhTZB1IZ52D90",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.patchSummary }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        -320
+      ],
+      "id": "39bcd148-e673-480c-8dad-abf0af0b9251",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "const files = $input.all().map(item => item.json);\n\n// 1. Count total lines changed\nconst totalChanges = files.reduce((sum, f) => {\n  return sum + (f.additions || 0) + (f.deletions || 0);\n}, 0);\n\n// 2. Calculate size label\nfunction getSizeLabel(lines) {\n  if (lines < 10)  return 'XS';\n  if (lines < 50)  return 'S';\n  if (lines < 200) return 'M';\n  if (lines < 500) return 'L';\n  return 'XL';\n}\nconst sizeLabel = getSizeLabel(totalChanges);\n\n// 3. Extract file paths\nconst filePaths = files.map(f => f.filename);\n\n// 4. Build a patch summary (cap at 3000 chars for the AI node)\nconst patchSummary = files\n  .map(f => `### ${f.filename}\\n${f.patch || ''}`)\n  .join('\\n\\n')\n  .slice(0, 3000);\n\n// 5. Return everything downstream nodes need\nreturn [{\n  json: {\n    totalChanges,\n    sizeLabel,\n    filePaths,\n    patchSummary,\n    fileCount: files.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        -544
+      ],
+      "id": "b2b10282-e7de-4c34-bb1c-129cd40675cb",
+      "name": "DIFF Parser"
+    },
+    {
+      "parameters": {
+        "operation": "createComment",
+        "owner": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ossema15"
+        },
+        "repository": {
+          "__rl": true,
+          "mode": "name",
+          "value": "n8n_pr_review_agent"
+        },
+        "issueNumber": "={{ $('Github Trigger').item.json.body.number }}",
+        "body": "=### 🤖 Automated PR Review\n\n{{ $('AI Agent').first().json.output }}\n\n---\n| | |\n|---|---|\n| Size | `{{ $('DIFF Parser').first().json.sizeLabel }}` |\n| Files | {{ $('DIFF Parser').first().json.fileCount }} |\n| Lines | {{ $('DIFF Parser').first().json.totalChanges }} |"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        176,
+        -528
+      ],
+      "id": "f914a244-6f20-40a0-b09d-0a70c63ee48d",
+      "name": "Create a comment on an issue",
+      "webhookId": "bec264f1-162e-4810-8f6e-a6b8f75d7804",
+      "credentials": {
+        "githubApi": {
+          "id": "82csbIPnnQMS3Jle",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0ALHTBJFC3",
+          "mode": "id"
+        },
+        "text": "=✅ PR Approved: {{ $('Github Trigger').item.json.body.pull_request.title }}\nNo issues found — merged when ready.\n{{ $('Github Trigger').item.json.body.pull_request.html_url }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        912,
+        -496
+      ],
+      "id": "fc300685-9510-4505-bc4c-3ac75c00460d",
+      "name": "Send a message",
+      "webhookId": "d0081fe3-4ad8-43c7-b32c-89f5e3c7d1e7",
+      "credentials": {
+        "slackApi": {
+          "id": "M66cng75XWLNgoBt",
+          "name": "Slack account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e59bb9ed-1118-43d3-b8b6-f7922954e82e",
+              "leftValue": "={{ $('AI Agent').first().json.output }}",
+              "rightValue": "LGTM",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        -512
+      ],
+      "id": "3064e591-6f0a-41a0-a7cd-61d36b8c07ab",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "resource": "review",
+        "owner": {
+          "__rl": true,
+          "value": "ossema15",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8n_pr_review_agent",
+          "mode": "name"
+        },
+        "pullRequestNumber": "={{ $('Github Trigger').item.json.body.number }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        -528
+      ],
+      "id": "cb707b9d-7bd4-449c-9cc2-2eb1954d829f",
+      "name": "approve node",
+      "webhookId": "3dad5417-e7d2-4402-a05d-5847b68d5ee4",
+      "credentials": {
+        "githubApi": {
+          "id": "82csbIPnnQMS3Jle",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "review",
+        "owner": {
+          "__rl": true,
+          "value": "ossema15",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8n_pr_review_agent",
+          "mode": "name"
+        },
+        "pullRequestNumber": "={{ $('Github Trigger').item.json.body.number }}",
+        "event": "requestChanges",
+        "body": "={{ $('AI Agent').first().json.output }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        -240
+      ],
+      "id": "8e0f1afe-772f-4439-a836-45a9eb11bc9d",
+      "name": "request changes",
+      "webhookId": "3dad5417-e7d2-4402-a05d-5847b68d5ee4",
+      "credentials": {
+        "githubApi": {
+          "id": "82csbIPnnQMS3Jle",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0ALHTBJFC3",
+          "mode": "id"
+        },
+        "text": "=⚠️ PR Needs Changes: {{ $('Github Trigger').item.json.body.pull_request.title }}\nAI flagged issues — check the review.\n{{ $('Github Trigger').item.json.body.pull_request.html_url }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        928,
+        -256
+      ],
+      "id": "3b08dd5f-21e3-4eb6-bafe-903d69fd6169",
+      "name": "Send a message1",
+      "webhookId": "d0081fe3-4ad8-43c7-b32c-89f5e3c7d1e7",
+      "credentials": {
+        "slackApi": {
+          "id": "M66cng75XWLNgoBt",
+          "name": "Slack account 5"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Github Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "DIFF Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DIFF Parser": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Create a comment on an issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a comment on an issue": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "approve node",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "request changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "approve node": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "request changes": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "43de1e01-8f54-4d9a-b753-0cbbb44bc009",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8a2f939b661b3841cbf477c15817e72c7d00b7a5087065ade4c3fd59d6e8f0b2"
+  },
+  "id": "Que1imZ13ulLHK5M",
+  "tags": []
+}
